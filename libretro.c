@@ -146,13 +146,16 @@ static void retro_60hz_init(void)
        * frame
        * > Round down - any excess samples will be read
        *   out at the end of each 4/5 frame cycle */
-      retro_60hz_audio.samples_per_frame = ((int32_t)(RETRO_SAMPLE_RATE /
-            RETRO_60HZ_FPS));
+      /* rate / (4/5 * 3072000/(159*256)), floored, in exact
+       * integer arithmetic (feeds the audio cadence, so it must
+       * be identical on every platform) */
+      retro_60hz_audio.samples_per_frame = (int32_t)
+            (((int64_t)RETRO_SAMPLE_RATE * 159 * 256 * 5) / (3072000LL * 4));
 
       /* Initial buffer size should be *twice* that of
        * the expected number of samples per 75Hz frame */
-      retro_60hz_audio.samples_buf_size  = ((int32_t)(RETRO_SAMPLE_RATE /
-            MEDNAFEN_CORE_TIMING_FPS) + 1) << 2;
+      retro_60hz_audio.samples_buf_size  = ((int32_t)
+            (((int64_t)RETRO_SAMPLE_RATE * 159 * 256) / 3072000LL) + 1) << 2;
       retro_60hz_audio.samples_buf       = (int16_t*)malloc(
             retro_60hz_audio.samples_buf_size * sizeof(int16_t));
 

@@ -60,8 +60,6 @@ ifneq (,$(findstring unix,$(platform)))
    TARGET := $(TARGET_NAME)_libretro.so
    fpic := -fPIC
    SHARED := -shared -Wl,--no-undefined -Wl,--version-script=link.T
-   # Linking with $(CC) no longer pulls libm implicitly
-   LDFLAGS += -lm
 
    # Raspberry Pi
    ifneq (,$(findstring rpi,$(platform)))

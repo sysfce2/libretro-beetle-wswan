@@ -5,7 +5,6 @@
 #include <limits.h>
 #include <string.h>
 #include <stdlib.h>
-#include <math.h>
 
 #ifndef ULLONG_MAX
 #define ULLONG_MAX 18446744073709551615ULL
@@ -100,8 +99,13 @@ blargg_err_t Blip_Buffer_set_sample_rate(Blip_Buffer* bbuf, long new_rate, int m
 blip_resampled_time_t Blip_Buffer_clock_rate_factor(Blip_Buffer* bbuf,
       long rate)
 {
-	double ratio = (double) bbuf->sample_rate / rate;
-	blip_s64 factor = (blip_s64) floor(ratio * (1LL << BLIP_BUFFER_ACCURACY) + 0.5);
+	/* Round-half-up of sample_rate * 2^BLIP_BUFFER_ACCURACY / rate
+	 * in pure 64-bit integer arithmetic. Numerically identical to
+	 * the floor()-based double computation for every reachable
+	 * (sample_rate, clock_rate) pair, without the libm dependency
+	 * and immune to -ffast-math and per-platform FP differences. */
+	blip_s64 factor = (((blip_s64)bbuf->sample_rate << BLIP_BUFFER_ACCURACY)
+	      + (rate >> 1)) / rate;
 	return (blip_resampled_time_t) factor;
 }
 

@@ -372,9 +372,8 @@ void WSwan_SoundCheckRAMWrite(uint32 A)
 
 static void RedoVolume(void)
 {
-   double eff_volume = 1.0 / 4;
-
-   Blip_Synth_set_volume(&WaveSynth, eff_volume, 256);
+   /* effective volume 1/4 */
+   Blip_Synth_set_volume_n(&WaveSynth, 1, 4, 256);
 }
 
 void WSwan_SoundInit(void)

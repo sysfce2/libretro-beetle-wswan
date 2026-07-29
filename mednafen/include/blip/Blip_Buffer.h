@@ -155,9 +155,15 @@ typedef struct
 	int delta_factor;
 } Blip_Synth;
 
-static INLINE void Blip_Synth_set_volume(Blip_Synth* synth, double v, int range)
+/* Volume as the rational num/den, replacing the old double-based
+ * setter: delta_factor = floor((num/den) / range * 2^sample_bits
+ * + 0.5) computed in 64-bit integer arithmetic, so the resulting
+ * synth gain is bit-identical on every platform regardless of FP
+ * behavior, and no libm is required. */
+static INLINE void Blip_Synth_set_volume_n(Blip_Synth* synth, int num, int den, int range)
 {
-	synth->delta_factor = ((v * (1.0 / (range < 0 ? -range : range))) * (1L << blip_sample_bits) + 0.5);
+	blip_s64 r = (blip_s64)(range < 0 ? -range : range) * den;
+	synth->delta_factor = (int)((2 * ((blip_s64)num << blip_sample_bits) + r) / (2 * r));
 }
 /* Works directly in terms of fractional output samples. Contact author for more info. */
 static INLINE void Blip_Synth_offset_resampled(Blip_Synth* synth, blip_resampled_time_t,

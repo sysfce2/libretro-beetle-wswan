@@ -17,6 +17,7 @@
 #include "mednafen/wswan/v30mz.h"
 #include "mednafen/wswan/rtc.h"
 #include "mednafen/wswan/comm.h"
+#include "mednafen/state_inline.h"
 #include "mednafen/wswan/eeprom.h"
 
 #if defined(_3DS)
@@ -105,6 +106,23 @@ static bool retro_60hz_enabled             = false;
 static uint16_t retro_60hz_counter         = 0;
 static retro_60hz_audio_t retro_60hz_audio = {0};
 
+/* Forward declarations for lrav_reset() */
+static int64_t audio_low_pass_acc_left;
+static int64_t audio_low_pass_acc_right;
+
+/* Reset the presentation-side A/V state: the low-pass filter's
+ * IIR accumulators and the 60Hz pulldown cadence/cache. Called at
+ * game load and console reset so a statically linked core cannot
+ * carry this state across sessions, and so reset -> N frames is
+ * reproducible. */
+static void lrav_reset(void)
+{
+   audio_low_pass_acc_left          = 0;
+   audio_low_pass_acc_right         = 0;
+   retro_60hz_counter               = 0;
+   retro_60hz_audio.samples_buf_pos = 0;
+}
+
 static void retro_60hz_deinit(void)
 {
    if (retro_60hz_audio.samples_buf)
@@ -179,8 +197,6 @@ static void retro_60hz_cache_audio_samples(int16_t *samples, int32_t frames)
 }
 
 static bool audio_low_pass_enabled      = false;
-static int64_t audio_low_pass_acc_left  = 0;
-static int64_t audio_low_pass_acc_right = 0;
 
 static void audio_low_pass_apply(int16_t *samples, int32_t frames)
 {
@@ -620,6 +636,8 @@ static int Load(const uint8_t *data, size_t size)
 
    WSwan_RTCInit();
 
+   lrav_reset();
+
    wsMakeTiles();
 
    Reset();
@@ -659,6 +677,78 @@ int StateAction(StateMem *sm, int load, int data_only)
       return 0;
    if(!WSwan_EEPROMStateAction(sm, load, data_only))
       return 0;
+
+   /* Presentation-chain state that affects reproducibility:
+    * the audio low-pass filter's IIR accumulators, and the 60Hz
+    * pulldown cadence plus its cached-audio backlog. The 60Hz
+    * counter schedules an extra emulated frame every fifth
+    * retro_run, so leaving it out desyncs runahead and netplay
+    * resimulation whenever 60Hz mode is enabled; the accumulators
+    * and cache keep audio sample-exact across a state load.
+    * Section is optional: states from older cores simply reset
+    * this block. */
+   {
+      static int16_t lrav_60hz_stage[8192];
+      static int32_t lrav_60hz_pos;
+
+      SFORMAT LRAVRegs[] =
+      {
+         SFVARN(audio_low_pass_acc_left, "LPAccL"),
+         SFVARN(audio_low_pass_acc_right, "LPAccR"),
+         SFVARN(retro_60hz_counter, "60HzCounter"),
+         SFVARN(lrav_60hz_pos, "60HzCachePos"),
+         SFARRAY16N(lrav_60hz_stage, 8192, "60HzCache"),
+         { 0, 0, 0, 0 }
+      };
+
+      if(!load)
+      {
+         lrav_60hz_pos = retro_60hz_audio.samples_buf_pos;
+         if(lrav_60hz_pos > 8192)
+            lrav_60hz_pos = 8192;
+         if(lrav_60hz_pos > 0)
+            memcpy(lrav_60hz_stage, retro_60hz_audio.samples_buf,
+                  lrav_60hz_pos * sizeof(int16_t));
+      }
+      else
+      {
+         /* Defaults if the section is absent from the state */
+         audio_low_pass_acc_left  = 0;
+         audio_low_pass_acc_right = 0;
+         retro_60hz_counter       = 0;
+         lrav_60hz_pos            = 0;
+      }
+
+      if(!MDFNSS_StateAction(sm, load, data_only, LRAVRegs, "LRAV", true))
+         return 0;
+
+      if(load)
+      {
+         if(lrav_60hz_pos < 0 || lrav_60hz_pos > 8192)
+            lrav_60hz_pos = 0;
+         lrav_60hz_pos &= ~1;
+         retro_60hz_counter %= (RETRO_60HZ_CYCLE_INDEX + 1);
+
+         if(lrav_60hz_pos > 0 &&
+            retro_60hz_audio.samples_buf_size < lrav_60hz_pos)
+         {
+            int16_t *new_buf = (int16_t*)realloc(retro_60hz_audio.samples_buf,
+                  lrav_60hz_pos * sizeof(int16_t));
+            if (new_buf)
+            {
+               retro_60hz_audio.samples_buf      = new_buf;
+               retro_60hz_audio.samples_buf_size = lrav_60hz_pos;
+            }
+            else
+               lrav_60hz_pos = 0;
+         }
+         if(lrav_60hz_pos > 0)
+            memcpy(retro_60hz_audio.samples_buf, lrav_60hz_stage,
+                  lrav_60hz_pos * sizeof(int16_t));
+         retro_60hz_audio.samples_buf_pos = lrav_60hz_pos;
+      }
+   }
+
    return 1;
 }
 
@@ -668,6 +758,7 @@ static void DoSimpleCommand(int cmd)
    {
       case MDFN_MSC_POWER:
       case MDFN_MSC_RESET:
+         lrav_reset();
          Reset();
          break;
    }

@@ -867,6 +867,90 @@ static void check_variables(int startup)
    unsigned prev_frameskip_type;
    bool update_60hz_mode = false;
 
+   /* Owner profile options are consumed once, at content load,
+    * when WSwan_EEPROMInit() writes the internal EEPROM. */
+   if (startup)
+   {
+      char frontend_name[17];
+
+      var.key   = "wswan_language";
+      var.value = NULL;
+      setting_wswan_language = 1;
+      if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+         if (!strcmp(var.value, "japanese"))
+            setting_wswan_language = 0;
+
+      var.key   = "wswan_birth_year";
+      var.value = NULL;
+      setting_wswan_byear = 1989;
+      if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+      {
+         uint32 v = (uint32)atoi(var.value);
+         if (v >= 1920 && v <= 2029)
+            setting_wswan_byear = v;
+      }
+
+      var.key   = "wswan_birth_month";
+      var.value = NULL;
+      setting_wswan_bmonth = 6;
+      if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+      {
+         uint32 v = (uint32)atoi(var.value);
+         if (v >= 1 && v <= 12)
+            setting_wswan_bmonth = v;
+      }
+
+      var.key   = "wswan_birth_day";
+      var.value = NULL;
+      setting_wswan_bday = 23;
+      if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+      {
+         uint32 v = (uint32)atoi(var.value);
+         if (v >= 1 && v <= 31)
+            setting_wswan_bday = v;
+      }
+
+      var.key   = "wswan_sex";
+      var.value = NULL;
+      setting_wswan_sex = 2;
+      if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+         if (!strcmp(var.value, "male"))
+            setting_wswan_sex = 1;
+
+      var.key   = "wswan_blood";
+      var.value = NULL;
+      setting_wswan_blood = 3;
+      if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+      {
+         if (!strcmp(var.value, "a"))
+            setting_wswan_blood = 1;
+         else if (!strcmp(var.value, "b"))
+            setting_wswan_blood = 2;
+         else if (!strcmp(var.value, "ab"))
+            setting_wswan_blood = 4;
+      }
+
+      strcpy(setting_wswan_name, "Mednafen");
+      var.key   = "wswan_name_source";
+      var.value = NULL;
+      if (!(environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value &&
+            !strcmp(var.value, "default")))
+      {
+         const char *username = NULL;
+         if (environ_cb(RETRO_ENVIRONMENT_GET_USERNAME, &username) &&
+             username && username[0])
+         {
+            size_t i;
+            /* Internal EEPROM name is 16 chars; EEPROMInit maps
+             * the charset (A-Z, a-z, 0-9, space) itself. */
+            for (i = 0; i < 16 && username[i]; i++)
+               frontend_name[i] = username[i];
+            frontend_name[i] = '\0';
+            strcpy(setting_wswan_name, frontend_name);
+         }
+      }
+   }
+
    var.key = "wswan_rotate_display",
    var.value = NULL;
 

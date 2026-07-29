@@ -19,16 +19,28 @@
 #include <string.h>
 #include "settings.h"
 
+/* Owner profile written into the internal EEPROM at game load;
+ * populated from core options / frontend username by the
+ * libretro layer before MDFNI_LoadGame(). Defaults match
+ * upstream mednafen's setting defaults. */
+uint32_t setting_wswan_byear    = 1989;
+uint32_t setting_wswan_bmonth   = 6;
+uint32_t setting_wswan_bday     = 23;
+uint32_t setting_wswan_sex      = 2; /* female */
+uint32_t setting_wswan_blood    = 3; /* O */
+uint32_t setting_wswan_language = 1; /* english */
+char setting_wswan_name[17]     = "Mednafen";
+
 uint64_t MDFN_GetSettingUI(const char *name)
 {
    if (!strcmp("wswan.ocmultiplier", name))
       return 1;
    if (!strcmp("wswan.bday", name))
-      return 23;
+      return setting_wswan_bday;
    if (!strcmp("wswan.bmonth", name))
-      return 6;
+      return setting_wswan_bmonth;
    if (!strcmp("wswan.byear", name))
-      return 1989;
+      return setting_wswan_byear;
    if (!strcmp("wswan.slstart", name))
       return 4;
    if (!strcmp("wswan.slend", name))
@@ -40,9 +52,9 @@ uint64_t MDFN_GetSettingUI(const char *name)
 int64_t MDFN_GetSettingI(const char *name)
 {
    if (!strcmp("wswan.sex", name))
-      return 0;
+      return (int64_t)setting_wswan_sex;
    if (!strcmp("wswan.blood", name))
-      return 0;
+      return (int64_t)setting_wswan_blood;
    return 0;
 }
 
@@ -53,7 +65,7 @@ bool MDFN_GetSettingB(const char *name)
    if (!strcmp("wswan.forcemono", name))
       return 0;
    if (!strcmp("wswan.language", name))
-      return 1;
+      return setting_wswan_language != 0;
    if (!strcmp("wswan.correct_aspect", name))
       return 1;
    return 0;
@@ -62,6 +74,6 @@ bool MDFN_GetSettingB(const char *name)
 const char *MDFN_GetSettingS(const char *name)
 {
    if (!strcmp("wswan.name", name))
-      return "Mednafen";
+      return setting_wswan_name;
    return "";
 }

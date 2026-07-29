@@ -60,6 +60,8 @@ ifneq (,$(findstring unix,$(platform)))
    TARGET := $(TARGET_NAME)_libretro.so
    fpic := -fPIC
    SHARED := -shared -Wl,--no-undefined -Wl,--version-script=link.T
+   # Linking with $(CC) no longer pulls libm implicitly
+   LDFLAGS += -lm
 
    # Raspberry Pi
    ifneq (,$(findstring rpi,$(platform)))
@@ -536,7 +538,7 @@ else
    CC ?= gcc
    CXX ?= g++
    SHARED := -shared -Wl,--no-undefined -Wl,--version-script=link.T
-   LDFLAGS += -static-libgcc -static-libstdc++ -lwinmm
+   LDFLAGS += -static-libgcc -lwinmm
 endif
 
 include Makefile.common
@@ -607,7 +609,10 @@ else
 	LD = link.exe
 endif
 else
-	LD = $(CXX)
+	# Codebase is pure C now (mempatcher.cpp was the last C++
+	# translation unit); link with the C driver so the core no
+	# longer depends on the C++ runtime.
+	LD = $(CC)
 endif
 
 $(TARGET): $(OBJECTS)

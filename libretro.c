@@ -8,7 +8,6 @@
 #include "mednafen/settings.h"
 #include "mednafen/git.h"
 #include "mednafen/wswan/wswan.h"
-#include <compat/strl.h>
 #include "mednafen/mempatcher.h"
 #include "mednafen/mempatcher-driver.h"
 #include "mednafen/wswan/gfx.h"
@@ -42,7 +41,6 @@ void linearFree(void* mem);
 #define FB_MAX_HEIGHT FB_HEIGHT
 
 /* Forward declarations */
-void MDFN_LoadGameCheats(void *override_ptr);
 void MDFN_FlushGameCheats(int nosave);
 
 /* core options */
@@ -776,8 +774,6 @@ static bool MDFNI_LoadGame(
    if(Load(data, size) <= 0)
       return false;
 
-	MDFN_LoadGameCheats(NULL);
-	MDFNMP_InstallReadPatches();
 
    return true;
 }
@@ -1775,37 +1771,99 @@ void retro_cheat_reset(void)
  * hex byte), matching the convention used by the other Beetle
  * cores. Addresses follow the cheat-engine mapping established in
  * WSwan_MemoryInit(): internal RAM at 0x0000-0xFFFF, cartridge
- * SRAM linearly at 0x10000 onward. */
+ * SRAM linearly at 0x10000 onward.
+ *
+ * Parsed in a single pass with no library calls and no bounded
+ * intermediate copy, so codes of any length work (the previous
+ * strtok-based version silently truncated multi-part codes at
+ * 256 characters). */
+
+static INLINE int cheat_hex_digit(char c)
+{
+   if (c >= '0' && c <= '9')
+      return c - '0';
+   if (c >= 'A' && c <= 'F')
+      return c - 'A' + 10;
+   if (c >= 'a' && c <= 'f')
+      return c - 'a' + 10;
+   return -1;
+}
+
+static INLINE int cheat_is_sep(char c)
+{
+   return (c == '+' || c == ',' || c == ';' || c == '.' ||
+           c == '_' || c == ' ');
+}
+
 void retro_cheat_set(unsigned index, bool enabled, const char *code)
 {
-   char temp[256];
-   char *codepart;
+   const char *p = code;
 
    (void)index;
 
-   if (!code)
+   if (!code || !enabled)
       return;
 
-   if (!enabled)
-      return;
-
-   strlcpy(temp, code, sizeof(temp));
-   codepart = strtok(temp, "+,;._ ");
-
-   while (codepart)
+   while (*p)
    {
-      size_t len = strlen(codepart);
+      uint32 a       = 0;
+      uint32 v       = 0;
+      int addr_chars = 0;
+      int val_chars  = 0;
+      int valid      = 1;
+      const char *part_start;
+      int d;
 
-      if ((len == 7 || len == 8) && codepart[len - 3] == ':')
+      while (cheat_is_sep(*p))
+         p++;
+      if (!*p)
+         break;
+      part_start = p;
+
+      /* hex address, 1-6 digits */
+      while ((d = cheat_hex_digit(*p)) >= 0)
       {
-         uint32 a;
-         uint32 v;
+         if (addr_chars >= 6)
+         {
+            valid = 0;
+            break;
+         }
+         a = (a << 4) | (uint32)d;
+         addr_chars++;
+         p++;
+      }
+      if (!addr_chars || addr_chars > 5)
+         valid = 0;
 
-         codepart[len - 3] = '\0';
+      if (valid && *p == ':')
+         p++;
+      else
+         valid = 0;
 
-         a = (uint32)strtoul(codepart, NULL, 16);
-         v = (uint32)strtoul(codepart + (len - 2), NULL, 16);
+      /* value: exactly two hex digits */
+      if (valid)
+      {
+         while ((d = cheat_hex_digit(*p)) >= 0)
+         {
+            if (val_chars >= 2)
+            {
+               valid = 0;
+               break;
+            }
+            v = (v << 4) | (uint32)d;
+            val_chars++;
+            p++;
+         }
+         if (val_chars != 2)
+            valid = 0;
+      }
 
+      /* the part must end exactly at a separator or the end */
+      if (valid && *p && !cheat_is_sep(*p))
+         valid = 0;
+
+      if (valid)
+      {
          /* RAM, or SRAM when the cart has any */
          if (a < 0x10000 || (SRAMSize && a >= 0x10000 &&
                a < 0x10000 + SRAMSize))
@@ -1813,15 +1871,17 @@ void retro_cheat_set(unsigned index, bool enabled, const char *code)
             if (!MDFNI_AddCheat("N/A", a, v, 0, 'R', 1, false))
             {
                if (log_cb)
-                  log_cb(RETRO_LOG_WARN, "Failed to set cheat: '%s:%02X'\n", codepart, v);
+                  log_cb(RETRO_LOG_WARN, "Failed to set cheat: %05X:%02X\n", a, v);
             }
          }
          else if (log_cb)
-            log_cb(RETRO_LOG_WARN, "Cheat address out of range: '%s:%02X'\n", codepart, v);
+            log_cb(RETRO_LOG_WARN, "Cheat address out of range: %05X:%02X\n", a, v);
       }
       else if (log_cb)
-         log_cb(RETRO_LOG_WARN, "Invalid cheat code: '%s'\n", codepart);
+         log_cb(RETRO_LOG_WARN, "Invalid cheat code part: '%.16s'\n", part_start);
 
-      codepart = strtok(NULL, "+,;._ ");
+      /* advance to the next separator (recovers from junk parts) */
+      while (*p && !cheat_is_sep(*p))
+         p++;
    }
 }

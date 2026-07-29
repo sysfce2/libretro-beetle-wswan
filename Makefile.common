@@ -68,10 +68,8 @@ FLAGS += -DFRONTEND_SUPPORTS_RGB565
 endif
 
 ifneq ($(HAVE_GRIFFIN), 1)
-SOURCES_CXX += \
-	$(MEDNAFEN_DIR)/mempatcher.cpp \
-
 SOURCES_C   += \
+	$(MEDNAFEN_DIR)/mempatcher.c \
 	$(MEDNAFEN_DIR)/state.c \
 	$(MEDNAFEN_DIR)/settings.c \
 	$(CORE_DIR)/libretro.c

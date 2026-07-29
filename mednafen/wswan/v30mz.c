@@ -603,7 +603,7 @@ void v30mz_reset(void)
 
 void v30mz_int(uint32 vector, bool IgnoreIF)
 {
-   InHLT = false; // This is correct!  Standby mode is always exited when there is an INT signal, regardless of whether interrupt are disabled.
+   InHLT = false; /* This is correct!  Standby mode is always exited when there is an INT signal, regardless of whether interrupt are disabled. */
    if(I.IF || IgnoreIF)
    {
       uint32 dest_seg, dest_off;
@@ -1038,10 +1038,10 @@ static void DoOP(uint8 opcode)
          OP( 0x96, i_xchg_axsi ) { XchgAWReg(IX); CLK(3); } OP_EPILOGUE;
          OP( 0x97, i_xchg_axdi ) { XchgAWReg(IY); CLK(3); } OP_EPILOGUE;
 
-         // AKA CVTBW
+         /* AKA CVTBW */
          OP( 0x98, i_cbw       ) { I.regs.b[AH] = (I.regs.b[AL] & 0x80) ? 0xff : 0;	CLK(1);	} OP_EPILOGUE;
 
-         // AKA CVTWL
+         /* AKA CVTWL */
          OP( 0x99, i_cwd       ) { I.regs.w[DW] = (I.regs.b[AH] & 0x80) ? 0xffff : 0;	CLK(1);	} OP_EPILOGUE;
 
          OP( 0x9a, i_call_far  ) { uint32 tmp, tmp2;	FETCHuint16(tmp); FETCHuint16(tmp2); PUSH(I.sregs[PS]); PUSH(I.pc); I.pc = (uint16)tmp; I.sregs[PS] = (uint16)tmp2; CLK(10); } OP_EPILOGUE;
@@ -1100,8 +1100,8 @@ static void DoOP(uint8 opcode)
                case 0x08: do { ROR_uint8;  c--; } while (c>0); PutbackRMByte(ModRM,(uint8)dst); break;
                case 0x10: do { ROLC_uint8; c--; } while (c>0); PutbackRMByte(ModRM,(uint8)dst); break;
                case 0x18: do { RORC_uint8; c--; } while (c>0); PutbackRMByte(ModRM,(uint8)dst); break;
-               case 0x20: SHL_uint8(c);	I.AuxVal = 1; break;//
-               case 0x28: SHR_uint8(c);	I.AuxVal = 1; break;//
+               case 0x20: SHL_uint8(c);	I.AuxVal = 1; break;
+               case 0x28: SHR_uint8(c);	I.AuxVal = 1; break;
                case 0x30:  break;
                case 0x38: SHRA_uint8(c); break;
             }
@@ -1133,7 +1133,7 @@ static void DoOP(uint8 opcode)
          OP( 0xc6, i_mov_bd8  ) { GetModRM; PutImmRMByte(ModRM); CLK(1); } OP_EPILOGUE;
          OP( 0xc7, i_mov_wd16 ) { GetModRM; PutImmRMWord(ModRM); CLK(1); } OP_EPILOGUE;
 
-         // NEC calls it "PREPARE"
+         /* NEC calls it "PREPARE" */
          OP( 0xc8, i_enter ) {
             uint32 nb = FETCH;
             uint32 i,level;
@@ -1142,7 +1142,7 @@ static void DoOP(uint8 opcode)
             nb += FETCH << 8;
 
             level = FETCH;
-            level &= 0x1F; // Only lower 5 bits are valid on V30MZ
+            level &= 0x1F; /* Only lower 5 bits are valid on V30MZ */
 
             PUSH(I.regs.w[BP]);
             I.regs.w[BP]=I.regs.w[SP];
@@ -1236,8 +1236,8 @@ static void DoOP(uint8 opcode)
           * (ignore any "variable 'mult' set but not used"
           * compiler warnings; 'FETCH' is a non-trivial
           * macro, and is absolutely required) */
-         OP( 0xd4, i_aam    ) { uint32 mult=FETCH; mult=0; I.regs.b[AH] = I.regs.b[AL] / 10; I.regs.b[AL] %= 10; SetSZPF_Word(I.regs.w[AW]); CLK(17); } OP_EPILOGUE;
-         OP( 0xd5, i_aad    ) { uint32 mult=FETCH; mult=0; I.regs.b[AL] = I.regs.b[AH] * 10 + I.regs.b[AL]; I.regs.b[AH] = 0; SetSZPF_Byte(I.regs.b[AL]); CLK(6); } OP_EPILOGUE;
+         OP( 0xd4, i_aam    ) { /* V30MZ consumes but ignores the base operand, always base 10 */ (void)FETCH; I.regs.b[AH] = I.regs.b[AL] / 10; I.regs.b[AL] %= 10; SetSZPF_Word(I.regs.w[AW]); CLK(17); } OP_EPILOGUE;
+         OP( 0xd5, i_aad    ) { /* V30MZ consumes but ignores the base operand, always base 10 */ (void)FETCH; I.regs.b[AL] = I.regs.b[AH] * 10 + I.regs.b[AL]; I.regs.b[AH] = 0; SetSZPF_Byte(I.regs.b[AL]); CLK(6); } OP_EPILOGUE;
          OP( 0xd6, i_setalc ) { I.regs.b[AL] = (CF)?0xff:0x00; CLK(3);  } OP_EPILOGUE;
          OP( 0xd7, i_trans  ) { uint32 dest = (I.regs.w[BW]+I.regs.b[AL])&0xffff; I.regs.b[AL] = GetMemB(DS0, dest); CLK(5); } OP_EPILOGUE;
 
@@ -1271,10 +1271,10 @@ static void DoOP(uint8 opcode)
          OP( 0xee, i_outdxal  ) { write_port(I.regs.w[DW], I.regs.b[AL]); CLK(6); } OP_EPILOGUE;
          OP( 0xef, i_outdxax  ) { uint32 port = I.regs.w[DW];	write_port(port, I.regs.b[AL]);	write_port(port+1, I.regs.b[AH]); CLK(6); } OP_EPILOGUE;
 
-         // NEC calls it "BUSLOCK"
+         /* NEC calls it "BUSLOCK" */
          OP( 0xf0, i_lock     ) { CLK(1); DoOP(FETCHOP); } OP_EPILOGUE;
 
-         // We put CHK_ICOUNT *after* the first iteration has completed, to match real behavior.
+         /* We put CHK_ICOUNT *after* the first iteration has completed, to match real behavior. */
 #define CHK_ICOUNT(cond) if(v30mz_ICount < 0 && (cond)) { I.pc -= seg_prefix ? 3 : 2; break; }
 
          OP( 0xf2, i_repne    ) 
@@ -1394,10 +1394,10 @@ static void DoOP(uint8 opcode)
                case 0x30: PUSH(tmp); CLKM(2,1); break;
             }
          } OP_EPILOGUE;
-   } // End switch statement
+   } /* End switch statement */
 
 
-} // End func
+} /* End func */
 
 
 /*****************************************************************************/

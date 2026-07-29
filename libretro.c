@@ -8,7 +8,9 @@
 #include "mednafen/settings.h"
 #include "mednafen/git.h"
 #include "mednafen/wswan/wswan.h"
+#include <compat/strl.h>
 #include "mednafen/mempatcher.h"
+#include "mednafen/mempatcher-driver.h"
 #include "mednafen/wswan/gfx.h"
 #include "mednafen/wswan/interrupt.h"
 #include "mednafen/wswan/wswan-memory.h"
@@ -1763,5 +1765,63 @@ size_t retro_get_memory_size(unsigned type)
    return 0;
 }
 
-void retro_cheat_reset(void) { }
-void retro_cheat_set(unsigned a, bool b, const char *c) { }
+void retro_cheat_reset(void)
+{
+   MDFN_FlushGameCheats(0);
+}
+
+/* Accepts multi-part codes separated by any of "+,;._ ", each
+ * part being a raw RAM patch "AAAA:VV" / "AAAAA:VV" (hex address,
+ * hex byte), matching the convention used by the other Beetle
+ * cores. Addresses follow the cheat-engine mapping established in
+ * WSwan_MemoryInit(): internal RAM at 0x0000-0xFFFF, cartridge
+ * SRAM linearly at 0x10000 onward. */
+void retro_cheat_set(unsigned index, bool enabled, const char *code)
+{
+   char temp[256];
+   char *codepart;
+
+   (void)index;
+
+   if (!code)
+      return;
+
+   if (!enabled)
+      return;
+
+   strlcpy(temp, code, sizeof(temp));
+   codepart = strtok(temp, "+,;._ ");
+
+   while (codepart)
+   {
+      size_t len = strlen(codepart);
+
+      if ((len == 7 || len == 8) && codepart[len - 3] == ':')
+      {
+         uint32 a;
+         uint32 v;
+
+         codepart[len - 3] = '\0';
+
+         a = (uint32)strtoul(codepart, NULL, 16);
+         v = (uint32)strtoul(codepart + (len - 2), NULL, 16);
+
+         /* RAM, or SRAM when the cart has any */
+         if (a < 0x10000 || (SRAMSize && a >= 0x10000 &&
+               a < 0x10000 + SRAMSize))
+         {
+            if (!MDFNI_AddCheat("N/A", a, v, 0, 'R', 1, false))
+            {
+               if (log_cb)
+                  log_cb(RETRO_LOG_WARN, "Failed to set cheat: '%s:%02X'\n", codepart, v);
+            }
+         }
+         else if (log_cb)
+            log_cb(RETRO_LOG_WARN, "Cheat address out of range: '%s:%02X'\n", codepart, v);
+      }
+      else if (log_cb)
+         log_cb(RETRO_LOG_WARN, "Invalid cheat code: '%s'\n", codepart);
+
+      codepart = strtok(NULL, "+,;._ ");
+   }
+}

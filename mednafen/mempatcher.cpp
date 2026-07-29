@@ -111,8 +111,15 @@ extern "C" void MDFNMP_Kill(void)
 extern "C" void MDFNMP_AddRAM(uint32 size, uint32 A, uint8 *RAM)
 {
  uint32 AB = A / PageSize;
- 
- size /= PageSize;
+
+ /* Round the page count up: with the 16KB cheat page size, a
+  * region smaller than one page (e.g. the 8KB SRAM used by save
+  * type 0x01 carts) previously mapped zero pages, making it
+  * invisible to the cheat engine. Same bug exists in upstream
+  * mednafen. Callers are responsible for keeping cheat addresses
+  * within the real region size; the libretro cheat entry point
+  * validates against SRAMSize before adding a code. */
+ size = (size + PageSize - 1) / PageSize;
 
  for(unsigned int x = 0; x < size; x++)
  {
@@ -166,7 +173,7 @@ extern "C" void MDFN_FlushGameCheats(int nosave)
    RebuildSubCheats();
 }
 
-int MDFNI_AddCheat(const char *name, uint32 addr, uint64 val, uint64 compare, char type, unsigned int length, bool bigendian)
+extern "C" int MDFNI_AddCheat(const char *name, uint32 addr, uint64 val, uint64 compare, char type, unsigned int length, bool bigendian)
 {
    char *t;
 

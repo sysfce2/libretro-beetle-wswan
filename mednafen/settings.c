@@ -61,7 +61,7 @@ int64_t MDFN_GetSettingI(const char *name)
 bool MDFN_GetSettingB(const char *name)
 {
    if (!strcmp("cheats", name))
-      return 0;
+      return 1;
    if (!strcmp("wswan.forcemono", name))
       return 0;
    if (!strcmp("wswan.language", name))

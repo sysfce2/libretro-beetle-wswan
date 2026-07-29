@@ -35,8 +35,6 @@
 #include "../settings.h"
 #include "../state_inline.h"
 
-static bool SkipSL; // Skip save and load
-
 uint32 wsRAMSize;
 uint8 wsRAM[65536];
 uint8 *wsSRAM = NULL;
@@ -62,9 +60,24 @@ static uint8 BankSelector[4];
 
 static bool language;
 
+/* WonderWitch: 512KB flash in place of mask ROM, program/erase
+ * driven through an AMD-style command state machine, plus a flash
+ * write-lock register at port 0xCE. */
+static bool IsWW;
+static uint8 WW_FlashLock;
+
+#define WW_FWSM_READ 0
+#define WW_FWSM_FPS0 1
+#define WW_FWSM_FPS1 2
+#define WW_FWSM_FP0  3
+#define WW_FWSM_FP1  4
+#define WW_FWSM_FPR0 5
+
+static uint8 WW_FWSM;
+
 extern uint16 WSButtonStatus;
 
-void WSwan_writemem20(uint32 A, uint8 V)
+static INLINE void WriteMemCore(uint32 A, uint8 V, bool ww)
 {
    uint32 offset = A & 0xffff;
    uint32   bank = (A>>16) & 0xF;
@@ -79,14 +92,70 @@ void WSwan_writemem20(uint32 A, uint8 V)
       if(offset>=0xfe00) /*WSC palettes*/
          WSwan_GfxWSCPaletteRAMWrite(offset, V);
    }
-   else if(bank == 1) /* SRAM */
-   {	 
-      if(sram_size)
+   else if(bank == 1) /* SRAM or WonderWitch flash window */
+   {
+      if(ww && (BankSelector[1] & 0x08))
+      {
+         if(WW_FlashLock != 0x00)
+         {
+            uint32 rom_addr = offset | (BankSelector[1] << 16);
+
+            switch(WW_FWSM)
+            {
+               case WW_FWSM_READ:
+                  if((rom_addr & 0xFFF) == 0xAAA && V == 0xAA)
+                     WW_FWSM = WW_FWSM_FPS0;
+                  break;
+
+               case WW_FWSM_FPS0:
+                  if((rom_addr & 0xFFF) == 0x555 && V == 0x55)
+                     WW_FWSM = WW_FWSM_FPS1;
+                  else
+                     WW_FWSM = WW_FWSM_READ;
+                  break;
+
+               case WW_FWSM_FPS1:
+                  if((rom_addr & 0xFFF) == 0xAAA && V == 0x20)
+                     WW_FWSM = WW_FWSM_FP0;
+                  else
+                     WW_FWSM = WW_FWSM_READ;
+                  break;
+
+               case WW_FWSM_FP0:
+                  if((rom_addr & 0xFFF) == 0xBA && V == 0x90)
+                     WW_FWSM = WW_FWSM_FPR0;
+                  else if(V == 0xA0)
+                     WW_FWSM = WW_FWSM_FP1;
+                  break;
+
+               case WW_FWSM_FP1:
+                  wsCartROM[rom_addr & 524287] = V;
+                  WW_FWSM = WW_FWSM_FP0;
+                  break;
+
+               case WW_FWSM_FPR0:
+                  if(V == 0xF0)
+                     WW_FWSM = WW_FWSM_READ;
+                  break;
+            }
+         }
+      }
+      else if(sram_size)
          wsSRAM[(offset | (BankSelector[1] << 16)) & (sram_size - 1)] = V;
    }
 }
 
-uint8 WSwan_readmem20(uint32 A)
+void WSwan_writemem20(uint32 A, uint8 V)
+{
+   WriteMemCore(A, V, false);
+}
+
+void WSwan_writemem20_WW(uint32 A, uint8 V)
+{
+   WriteMemCore(A, V, true);
+}
+
+static INLINE uint8 ReadMemCore(uint32 A, bool ww)
 {
    uint8 bank_num;
    uint32 offset = A & 0xFFFF;
@@ -97,7 +166,17 @@ uint8 WSwan_readmem20(uint32 A)
       case 0: 
          return wsRAM[offset];
       case 1:
-         if(sram_size)
+         if(ww && (BankSelector[1] & 0x08))
+         {
+            uint32 rom_addr = offset | (BankSelector[1] << 16);
+            uint8 ret = wsCartROM[rom_addr & 524287];
+
+            if(WW_FWSM != WW_FWSM_READ)
+               ret &= 0x80;
+
+            return ret;
+         }
+         else if(sram_size)
             return wsSRAM[(offset | (BankSelector[1] << 16)) & (sram_size - 1)];
          return(0);
       case 2:
@@ -111,6 +190,16 @@ uint8 WSwan_readmem20(uint32 A)
    bank_num &= (rom_size >> 16) - 1;
 
    return(wsCartROM[(bank_num << 16) | offset]);
+}
+
+uint8 WSwan_readmem20(uint32 A)
+{
+   return ReadMemCore(A, false);
+}
+
+uint8 WSwan_readmem20_WW(uint32 A)
+{
+   return ReadMemCore(A, true);
 }
 
 static void ws_CheckDMA(void)
@@ -188,7 +277,7 @@ void WSwan_CheckSoundDMA(void)
    }
 }
 
-uint8 WSwan_readport(uint32 number)
+static INLINE uint8 ReadPortCore(uint32 number, bool ww)
 {
    number &= 0xFF;
 
@@ -240,13 +329,26 @@ uint8 WSwan_readport(uint32 number)
                  }
    }
 
+   if(ww && number == 0xCE)
+      return(WW_FlashLock);
+
    if(number >= 0xC8)
       return(0xD0 | language);
 
    return(0);
 }
 
-void WSwan_writeport(uint32 IOPort, uint8 V)
+uint8 WSwan_readport(uint32 number)
+{
+   return ReadPortCore(number, false);
+}
+
+uint8 WSwan_readport_WW(uint32 number)
+{
+   return ReadPortCore(number, true);
+}
+
+static INLINE void WritePortCore(uint32 IOPort, uint8 V, bool ww)
 {
    IOPort &= 0xFF;
 
@@ -310,6 +412,19 @@ void WSwan_writeport(uint32 IOPort, uint8 V)
       case 0xC2: BankSelector[2] = V; break;
       case 0xC3: BankSelector[3] = V; break;
    }
+
+   if(ww && IOPort == 0xCE)
+      WW_FlashLock = V;
+}
+
+void WSwan_writeport(uint32 IOPort, uint8 V)
+{
+   WritePortCore(IOPort, V, false);
+}
+
+void WSwan_writeport_WW(uint32 IOPort, uint8 V)
+{
+   WritePortCore(IOPort, V, true);
 }
 
 void WSwan_MemoryKill(void)
@@ -319,7 +434,7 @@ void WSwan_MemoryKill(void)
    wsSRAM = NULL;
 }
 
-void WSwan_MemoryInit(bool lang, bool IsWSC, uint32 ssize, bool SkipSaveLoad)
+void WSwan_MemoryInit(bool lang, bool IsWSC, uint32 ssize, bool IsWW_arg)
 {
    const uint16 byear = MDFN_GetSettingUI("wswan.byear");
    const uint8 bmonth = MDFN_GetSettingUI("wswan.bmonth");
@@ -328,7 +443,7 @@ void WSwan_MemoryInit(bool lang, bool IsWSC, uint32 ssize, bool SkipSaveLoad)
    const uint8 blood  = MDFN_GetSettingI("wswan.blood");
 
    language           = lang;
-   SkipSL             = SkipSaveLoad;
+   IsWW               = IsWW_arg;
 
    wsRAMSize          = 65536;
    sram_size          = ssize;
@@ -362,6 +477,9 @@ void WSwan_MemoryReset(void)
    wsRAM[0x75B3] = 0x31;
 
    memset(BankSelector, 0, sizeof(BankSelector));
+
+   WW_FlashLock = 0;
+   WW_FWSM = 0;
    ButtonWhich = 0;
    ButtonReadLatch = 0;
    DMASource = 0;
@@ -399,6 +517,13 @@ int WSwan_MemoryStateAction(StateMem *sm, int load, int data_only)
 
       SFARRAY(BankSelector, 4),
 
+      SFVAR(WW_FlashLock),
+      SFVAR(WW_FWSM),
+      /* WonderWitch flash is mutable cart storage; serializing it
+       * keeps savestates (and runahead/netplay resimulation)
+       * self-contained. NULL/0 for normal carts. */
+      SFARRAYN(IsWW ? wsCartROM : NULL, IsWW ? 524288 : 0, "WWFLASH"),
+
       SFEND
    };
 
@@ -415,6 +540,9 @@ int WSwan_MemoryStateAction(StateMem *sm, int load, int data_only)
        * a corrupt savestate would never reach zero and hang the
        * core. The port write handlers already enforce these masks;
        * apply the same invariants here. (Upstream 0.9.39.2.) */
+      if(WW_FWSM > WW_FWSM_FPR0)
+         WW_FWSM = WW_FWSM_READ;
+
       DMADest              &= 0xFFFE;
       DMALength            &= 0xFFFE;
       DMASource            &= 0x000FFFFE;

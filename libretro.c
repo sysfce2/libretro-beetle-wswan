@@ -492,6 +492,37 @@ static const DLEntry Developers[] =
 
 static uint32 SRAMSize;
 
+static bool wswan_is_ww = false;
+
+/* Standard CRC-32 (IEEE 802.3), as used by upstream for the
+ * WonderWitch firmware fingerprint. */
+static uint32 lr_crc32(uint32 crc, const uint8 *data, size_t len)
+{
+   static uint32 tab[256];
+   static bool tab_init = false;
+   size_t i;
+
+   if(!tab_init)
+   {
+      uint32 c;
+      unsigned n, k;
+
+      for(n = 0; n < 256; n++)
+      {
+         c = (uint32)n;
+         for(k = 0; k < 8; k++)
+            c = (c & 1) ? (0xEDB88320UL ^ (c >> 1)) : (c >> 1);
+         tab[n] = c;
+      }
+      tab_init = true;
+   }
+
+   crc = ~crc;
+   for(i = 0; i < len; i++)
+      crc = tab[(crc ^ data[i]) & 0xFF] ^ (crc >> 8);
+   return ~crc;
+}
+
 static int Load(const uint8_t *data, size_t size)
 {
    uint32 pow_size      = 0;
@@ -516,6 +547,34 @@ static int Load(const uint8_t *data, size_t size)
    memcpy(wsCartROM + (rom_size - real_rom_size), data, size);
 
    memcpy(header, wsCartROM + rom_size - 10, 10);
+
+   /* WonderWitch firmware detection, as upstream: 512KB image,
+    * "ELISA" font signature, known footer checksum, minus a
+    * blocklist of retail images that happen to match. */
+   wswan_is_ww = false;
+   if(rom_size == 524288 &&
+      !memcmp(&wsCartROM[0x70000], "ELISA", 5) &&
+      lr_crc32(0, &wsCartROM[0x7FFF0], 0x10) == 0x0d05ed64)
+   {
+      static const uint32 ww_blocklist[3] =
+      {
+         0x63f00316, 0x60fd569b, 0xe11538f8
+      };
+      uint32 crc32_sans_l64k = lr_crc32(0, wsCartROM, 0x70000);
+      bool blisted = false;
+      unsigned i;
+
+      for(i = 0; i < 3; i++)
+      {
+         if(crc32_sans_l64k == ww_blocklist[i])
+         {
+            blisted = true;
+            break;
+         }
+      }
+
+      wswan_is_ww = !blisted;
+   }
 
    SRAMSize = 0;
    eeprom_size = 0;
@@ -550,8 +609,11 @@ static int Load(const uint8_t *data, size_t size)
 
    MDFNMP_Init(16384, (1 << 20) / 1024);
 
-   v30mz_init(WSwan_readmem20, WSwan_writemem20, WSwan_readport, WSwan_writeport);
-   WSwan_MemoryInit(MDFN_GetSettingB("wswan.language"), wsc, SRAMSize, false); /* EEPROM and SRAM are loaded in this func. */
+   if(wswan_is_ww)
+      v30mz_init(WSwan_readmem20_WW, WSwan_writemem20_WW, WSwan_readport_WW, WSwan_writeport_WW);
+   else
+      v30mz_init(WSwan_readmem20, WSwan_writemem20, WSwan_readport, WSwan_writeport);
+   WSwan_MemoryInit(MDFN_GetSettingB("wswan.language"), wsc, SRAMSize, wswan_is_ww); /* EEPROM and SRAM are loaded in this func. */
    WSwan_GfxInit();
 
    WSwan_SoundInit();

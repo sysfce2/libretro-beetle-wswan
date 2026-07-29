@@ -190,12 +190,12 @@ static void audio_low_pass_apply(int16_t *samples, int32_t frames)
       int64_t drop_current_right;
 
       /* Left channel */
-      drop_current_left        = ((*samples << 16) - audio_low_pass_acc_left) >> 3;
+      drop_current_left        = ((int64_t)*samples * 65536 - audio_low_pass_acc_left) >> 3;
       audio_low_pass_acc_left += drop_current_left;
       *samples++               = (int16_t)((audio_low_pass_acc_left >> 16) & 0xFFFF);
 
       /* Right channel */
-      drop_current_right        = ((*samples << 16) - audio_low_pass_acc_right) >> 3;
+      drop_current_right        = ((int64_t)*samples * 65536 - audio_low_pass_acc_right) >> 3;
       audio_low_pass_acc_right += drop_current_right;
       *samples++                = (int16_t)((audio_low_pass_acc_right >> 16) & 0xFFFF);
    }

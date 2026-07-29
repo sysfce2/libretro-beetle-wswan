@@ -39,6 +39,10 @@ void WSwan_writemem20_WW(uint32 address,uint8 data);
 void WSwan_writeport_WW(uint32 IOPort, uint8 V);
 uint8 WSwan_readport_WW(uint32 number);
 
+/* WonderWitch only: contiguous [SRAM | flash] block exposed to
+ * the frontend as libretro save RAM. NULL for normal carts. */
+uint8 *WSwan_GetWWSaveBlock(uint32 *size);
+
 void WSwan_MemoryReset(void);
 int WSwan_MemoryStateAction(StateMem *sm, int load, int data_only);
 

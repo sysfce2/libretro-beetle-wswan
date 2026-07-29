@@ -1547,7 +1547,9 @@ void *retro_get_memory_data(unsigned type)
    switch (type)
    {
       case RETRO_MEMORY_SAVE_RAM:
-         if (eeprom_size)
+         if (wswan_is_ww)
+            return WSwan_GetWWSaveBlock(NULL);
+         else if (eeprom_size)
             return (uint8_t*)wsEEPROM;
          else if (SRAMSize)
             return wsSRAM;
@@ -1566,7 +1568,13 @@ size_t retro_get_memory_size(unsigned type)
    switch (type)
    {
       case RETRO_MEMORY_SAVE_RAM:
-         if (eeprom_size)
+         if (wswan_is_ww)
+         {
+            uint32 ww_size = 0;
+            WSwan_GetWWSaveBlock(&ww_size);
+            return ww_size;
+         }
+         else if (eeprom_size)
             return eeprom_size;
          else if (SRAMSize)
             return SRAMSize;

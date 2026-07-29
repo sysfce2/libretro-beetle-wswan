@@ -75,6 +75,20 @@ static uint8 WW_FlashLock;
 
 static uint8 WW_FWSM;
 
+/* For WonderWitch, cart SRAM and the flash array live in one
+ * contiguous allocation (SRAM first, then the 512KB flash) so the
+ * frontend can persist both through the single libretro save-RAM
+ * region. Non-NULL only when IsWW. */
+static uint8 *WW_SaveBlock;
+static uint32 WW_SaveBlockSize;
+
+uint8 *WSwan_GetWWSaveBlock(uint32 *size)
+{
+   if(size)
+      *size = WW_SaveBlockSize;
+   return WW_SaveBlock;
+}
+
 extern uint16 WSButtonStatus;
 
 static INLINE void WriteMemCore(uint32 A, uint8 V, bool ww)
@@ -429,7 +443,17 @@ void WSwan_writeport_WW(uint32 IOPort, uint8 V)
 
 void WSwan_MemoryKill(void)
 {
-   if(wsSRAM)
+   if(WW_SaveBlock)
+   {
+      /* wsCartROM points into this block; NULL it here so the
+       * loader's teardown does not free it a second time. */
+      free(WW_SaveBlock);
+      WW_SaveBlock     = NULL;
+      WW_SaveBlockSize = 0;
+      wsCartROM        = NULL;
+      wsSRAM           = NULL;
+   }
+   else if(wsSRAM)
       free(wsSRAM);
    wsSRAM = NULL;
 }
@@ -451,7 +475,23 @@ void WSwan_MemoryInit(bool lang, bool IsWSC, uint32 ssize, bool IsWW_arg)
    // WSwan_EEPROMInit() will also clear wsEEPROM
    WSwan_EEPROMInit(MDFN_GetSettingS("wswan.name"), byear, bmonth, bday, sex, blood);
 
-   if(sram_size)
+   if(IsWW)
+   {
+      /* One block: [SRAM | flash]. The flash half takes over the
+       * wsCartROM allocation made by the loader, so writes made
+       * through the flash state machine land directly in the
+       * frontend-persisted region. */
+      WW_SaveBlockSize = sram_size + 524288;
+      WW_SaveBlock     = (uint8*)malloc(WW_SaveBlockSize);
+
+      memset(WW_SaveBlock, 0, sram_size);
+      memcpy(WW_SaveBlock + sram_size, wsCartROM, 524288);
+
+      free(wsCartROM);
+      wsCartROM = WW_SaveBlock + sram_size;
+      wsSRAM    = sram_size ? WW_SaveBlock : NULL;
+   }
+   else if(sram_size)
    {
       wsSRAM = (uint8*)malloc(sram_size);
       memset(wsSRAM, 0, sram_size);

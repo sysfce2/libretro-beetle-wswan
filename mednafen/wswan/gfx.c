@@ -337,7 +337,11 @@ void wsScanline(uint16 *target, int depth)
    uint8		b_bg_pal[256];
 
    if(!wsVMode)
-      memset(b_bg, wsColors[BGColor&0xF]&0xF, 256);
+      /* Mono mode: BGColor selects one of the eight pool colors
+       * (ports 0x1C-0x1F). Upstream indexes wsColors[8] with the
+       * full low nibble, reading out of bounds when bit 3 is set;
+       * mask to the pool's actual 3-bit range. */
+      memset(b_bg, wsColors[BGColor & 0x7] & 0xF, 256);
    else
    {
       memset(&b_bg[0], BGColor & 0xF, 256);
